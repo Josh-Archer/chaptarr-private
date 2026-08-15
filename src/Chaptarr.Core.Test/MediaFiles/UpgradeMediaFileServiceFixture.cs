@@ -108,6 +108,40 @@ namespace Chaptarr.Core.Test.MediaFiles
             }
         }
 
+        private class NullRootFolderServiceProxy : DispatchProxy
+        {
+            protected override object Invoke(MethodInfo targetMethod, object[] args)
+            {
+                if (targetMethod?.Name == nameof(IRootFolderService.GetBestRootFolder))
+                {
+                    return null;
+                }
+
+                throw new NotImplementedException($"Test proxy does not implement IRootFolderService.{targetMethod?.Name}");
+            }
+        }
+
+        [Test]
+        public void should_throw_root_folder_not_found_when_best_root_folder_cannot_be_resolved()
+        {
+            var replacement = new BookFile { Id = 2, Path = "/downloads/Book.m4b" };
+            var author = new Author { Id = 1, Path = "/books/Author" };
+            var book = new Book { Id = 2, Author = author, BookFiles = new List<BookFile>() };
+            var localBook = new LocalBook { Author = author, Book = book, Path = replacement.Path };
+
+            var subject = new UpgradeMediaFileService(
+                new RecordingRecycleBinProvider(),
+                DispatchProxy.Create<IMediaFileService, MediaFileServiceProxy>(),
+                DispatchProxy.Create<IMetadataTagService, NoOpProxy<IMetadataTagService>>(),
+                new StubBookFileMover(),
+                DispatchProxy.Create<IDiskProvider, DiskProviderProxy>(),
+                DispatchProxy.Create<IRootFolderService, NullRootFolderServiceProxy>(),
+                DispatchProxy.Create<ICalibreProxy, ThrowingProxy<ICalibreProxy>>(),
+                LogManager.GetCurrentClassLogger());
+
+            Assert.Throws<RootFolderNotFoundException>(() => subject.UpgradeBookFile(replacement, localBook));
+        }
+
         [Test]
         public void should_not_delete_a_loose_path_match_while_replacing_its_stale_row()
         {
