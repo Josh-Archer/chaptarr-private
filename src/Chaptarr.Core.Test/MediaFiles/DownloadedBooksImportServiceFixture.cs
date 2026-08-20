@@ -190,7 +190,7 @@ namespace Chaptarr.Core.Test.MediaFiles
             public bool FolderWritable(string path) => throw new NotImplementedException();
             public bool FolderEmpty(string path) => throw new NotImplementedException();
             public IEnumerable<string> GetDirectories(string path) => throw new NotImplementedException();
-            public IEnumerable<string> GetFiles(string path, bool recursive) => throw new NotImplementedException();
+            public IEnumerable<string> GetFiles(string path, bool recursive) => Directory.Exists(path) ? Directory.GetFiles(path, "*", recursive ? SearchOption.AllDirectories : SearchOption.TopDirectoryOnly) : Array.Empty<string>();
             public long GetFolderSize(string path) => throw new NotImplementedException();
             public void CreateFolder(string path) => throw new NotImplementedException();
             public void DeleteFile(string path) => throw new NotImplementedException();
@@ -2665,7 +2665,7 @@ namespace Chaptarr.Core.Test.MediaFiles
             try
             {
                 var service = new DownloadedBooksImportService(
-                    new DiskProvider(),
+                    new StubDiskProvider(),
                     new StubDiskScanService(),
                     new StubFileMatchingService(),
                     new StubMetadataTagService(),
