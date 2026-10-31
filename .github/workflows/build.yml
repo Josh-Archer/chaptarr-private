@@ -24,23 +24,31 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    # Linux runs on the self-hosted ARC scale set (GitHub-hosted runners are
+    # blocked by the Actions billing limit). ARC has no Windows/macOS runners,
+    # so those entries use GitHub-hosted runners and are gated behind the repo
+    # variable ENABLE_HOSTED_RUNNERS == 'true' rather than removed.
+    runs-on: ${{ matrix.runner }}
+    env:
+      DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
-        include:
-          - os: ubuntu-latest
-            platform: linux
-          - os: windows-latest
-            platform: win
-          - os: macos-latest
-            platform: osx
+        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"}]') }}
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
         fetch-depth: 0
+
+    - name: Install runner prerequisites
+      if: runner.environment == 'self-hosted'
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The ARC runner image is minimal; add what the guards and smoke test use.
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends python3 python-is-python3 curl ca-certificates libicu-dev
 
     - name: Guard (repo) - no merge-conflict markers
       shell: bash
@@ -139,7 +147,11 @@ jobs:
         if-no-files-found: error
 
   postgres-migrations:
-    runs-on: ubuntu-latest
+    # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
+    # so the postgres service container's 5432 mapping is reachable on localhost.
+    runs-on: home-gh-runner-chaptarr-private
+    env:
+      DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     services:
       postgres:
         image: postgres:16
@@ -167,7 +179,7 @@ jobs:
       run: |
         set -euo pipefail
         sudo apt-get update
-        sudo apt-get install -y postgresql-client
+        sudo apt-get install -y --no-install-recommends postgresql-client curl ca-certificates libicu-dev
 
     - name: Create databases
       shell: bash
