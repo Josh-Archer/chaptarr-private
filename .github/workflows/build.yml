@@ -29,6 +29,8 @@ jobs:
     # macOS or Windows runners, so the matrix is Linux-only for now; restore the
     # windows-latest / macos-latest entries once hosted minutes are available.
     runs-on: home-gh-runner-chaptarr-private
+    env:
+      DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     strategy:
       fail-fast: false
       matrix:
@@ -149,6 +151,8 @@ jobs:
     # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
     # so the postgres service container's 5432 mapping is reachable on localhost.
     runs-on: home-gh-runner-chaptarr-private
+    env:
+      DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     services:
       postgres:
         image: postgres:16
