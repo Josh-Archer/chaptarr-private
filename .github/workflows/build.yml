@@ -34,7 +34,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"}]') }}
+        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"uecb-shared"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"uecb-shared"}]') }}
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -149,7 +149,7 @@ jobs:
   postgres-migrations:
     # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
     # so the postgres service container's 5432 mapping is reachable on localhost.
-    runs-on: home-gh-runner-chaptarr-private
+    runs-on: uecb-shared
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     services:
