@@ -24,19 +24,17 @@ permissions:
 
 jobs:
   build:
-    # GitHub-hosted runners are blocked by Actions billing, so CI runs on the
-    # self-hosted ARC scale set (Linux pods with a dind sidecar). ARC has no
-    # macOS or Windows runners, so the matrix is Linux-only for now; restore the
-    # windows-latest / macos-latest entries once hosted minutes are available.
-    runs-on: home-gh-runner-chaptarr-private
+    # Linux runs on the self-hosted ARC scale set (GitHub-hosted runners are
+    # blocked by the Actions billing limit). ARC has no Windows/macOS runners,
+    # so those entries use GitHub-hosted runners and are gated behind the repo
+    # variable ENABLE_HOSTED_RUNNERS == 'true' rather than removed.
+    runs-on: ${{ matrix.runner }}
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: linux
-            platform: linux
+        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"}]') }}
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -44,6 +42,7 @@ jobs:
         fetch-depth: 0
 
     - name: Install runner prerequisites
+      if: runner.environment == 'self-hosted'
       shell: bash
       run: |
         set -euo pipefail
@@ -140,7 +139,7 @@ jobs:
         dotnet publish src/NzbDrone.Update/Chaptarr.Update.csproj -c Release -f net10.0 -o ./publish/Chaptarr/Chaptarr.Update
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+      uses: actions/upload-artifact@v4
       with:
         name: chaptarr-${{ matrix.platform }}
         path: ./publish/
