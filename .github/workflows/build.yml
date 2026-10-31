@@ -24,23 +24,30 @@ permissions:
 
 jobs:
   build:
-    runs-on: ${{ matrix.os }}
+    # GitHub-hosted runners are blocked by Actions billing, so CI runs on the
+    # self-hosted ARC scale set (Linux pods with a dind sidecar). ARC has no
+    # macOS or Windows runners, so the matrix is Linux-only for now; restore the
+    # windows-latest / macos-latest entries once hosted minutes are available.
+    runs-on: home-gh-runner-chaptarr-private
     strategy:
       fail-fast: false
       matrix:
-        os: [ubuntu-latest, windows-latest, macos-latest]
         include:
-          - os: ubuntu-latest
+          - os: linux
             platform: linux
-          - os: windows-latest
-            platform: win
-          - os: macos-latest
-            platform: osx
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
       with:
         fetch-depth: 0
+
+    - name: Install runner prerequisites
+      shell: bash
+      run: |
+        set -euo pipefail
+        # The ARC runner image is minimal; add what the guards and smoke test use.
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends python3 python-is-python3 curl ca-certificates libicu-dev
 
     - name: Guard (repo) - no merge-conflict markers
       shell: bash
@@ -131,7 +138,7 @@ jobs:
         dotnet publish src/NzbDrone.Update/Chaptarr.Update.csproj -c Release -f net10.0 -o ./publish/Chaptarr/Chaptarr.Update
     
     - name: Upload artifacts
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
       with:
         name: chaptarr-${{ matrix.platform }}
         path: ./publish/
@@ -139,7 +146,9 @@ jobs:
         if-no-files-found: error
 
   postgres-migrations:
-    runs-on: ubuntu-latest
+    # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
+    # so the postgres service container's 5432 mapping is reachable on localhost.
+    runs-on: home-gh-runner-chaptarr-private
     services:
       postgres:
         image: postgres:16
@@ -167,7 +176,7 @@ jobs:
       run: |
         set -euo pipefail
         sudo apt-get update
-        sudo apt-get install -y postgresql-client
+        sudo apt-get install -y --no-install-recommends postgresql-client curl ca-certificates libicu-dev
 
     - name: Create databases
       shell: bash
