@@ -148,24 +148,10 @@ jobs:
 
   postgres-migrations:
     # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
-    # so the postgres service container's 5432 mapping is reachable on localhost.
+    # so the `docker run` postgres 5432 mapping is reachable on localhost.
     runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'uecb-shared' }}
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: chaptarr
-          POSTGRES_PASSWORD: chaptarr
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U chaptarr"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
@@ -180,6 +166,35 @@ jobs:
         set -euo pipefail
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends postgresql-client curl ca-certificates libicu-dev
+
+    # Postgres runs via `docker run` rather than a service container: on the
+    # shared-pool dind the service pull/create can exceed the runner's
+    # container-init window ("Failed to initialize container"), and a service
+    # failure cannot be retried. Here the pull retries and readiness waits up to 5 min.
+    - name: Start PostgreSQL
+      shell: bash
+      run: |
+        set -euo pipefail
+        for i in 1 2 3; do
+          docker pull postgres:16 && break
+          [ "$i" = 3 ] && { echo "::error::docker pull postgres:16 failed"; exit 1; }
+          sleep $((i * 10))
+        done
+        docker rm -f chaptarr-pg >/dev/null 2>&1 || true
+        docker run -d --name chaptarr-pg \
+          -e POSTGRES_USER=chaptarr -e POSTGRES_PASSWORD=chaptarr \
+          -p 5432:5432 postgres:16
+        for i in $(seq 1 150); do
+          if docker exec chaptarr-pg pg_isready -U chaptarr -h 127.0.0.1 >/dev/null 2>&1 \
+             && pg_isready -h localhost -p 5432 -U chaptarr >/dev/null 2>&1; then
+            echo "PostgreSQL ready after $((i * 2))s"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "::error::PostgreSQL did not become ready within 300s"
+        docker logs chaptarr-pg || true
+        exit 1
 
     - name: Create databases
       shell: bash
@@ -240,3 +255,8 @@ jobs:
         fi
 
         echo "PostgreSQL migrations smoke test passed."
+
+    - name: Stop PostgreSQL
+      if: always()
+      shell: bash
+      run: docker rm -f chaptarr-pg >/dev/null 2>&1 || true
