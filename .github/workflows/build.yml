@@ -173,6 +173,9 @@ jobs:
     # failure cannot be retried. Here the pull retries and readiness waits up to 5 min.
     - name: Start PostgreSQL
       shell: bash
+      env:
+        POSTGRES_USER: chaptarr
+        POSTGRES_PASSWORD: chaptarr
       run: |
         set -euo pipefail
         for i in 1 2 3; do
@@ -182,7 +185,7 @@ jobs:
         done
         docker rm -f chaptarr-pg >/dev/null 2>&1 || true
         docker run -d --name chaptarr-pg \
-          -e POSTGRES_USER=chaptarr -e POSTGRES_PASSWORD=chaptarr \
+          -e POSTGRES_USER -e POSTGRES_PASSWORD \
           -p 5432:5432 postgres:16
         for i in $(seq 1 150); do
           if docker exec chaptarr-pg pg_isready -U chaptarr -h 127.0.0.1 >/dev/null 2>&1 \
