@@ -220,7 +220,9 @@ jobs:
         pid=$!
 
         ready=""
-        for i in $(seq 1 90); do
+        # Shared-pool runners run the full Postgres migration chain slower than
+        # the old dedicated scale set (several seconds per index); allow 5 min.
+        for i in $(seq 1 300); do
           if curl -fsS "http://127.0.0.1:8789/ping" >/dev/null 2>&1; then
             ready="yes"
             break
