@@ -172,11 +172,22 @@ jobs:
     # shared-pool dind the service pull/create can exceed the runner's
     # container-init window ("Failed to initialize container"), and a service
     # failure cannot be retried. Here the pull retries and readiness waits up to 5 min.
+    - name: Generate PostgreSQL password
+      shell: bash
+      run: |
+        set -euo pipefail
+        pg_password="$(openssl rand -hex 24)"
+        echo "::add-mask::${pg_password}"
+        {
+          echo "POSTGRES_PASSWORD=${pg_password}"
+          echo "PGPASSWORD=${pg_password}"
+          echo "Chaptarr__Postgres__Password=${pg_password}"
+        } >> "$GITHUB_ENV"
+
     - name: Start PostgreSQL
       shell: bash
       env:
         POSTGRES_USER: chaptarr
-        POSTGRES_PASSWORD: chaptarr
       run: |
         set -euo pipefail
         for i in 1 2 3; do
@@ -202,8 +213,6 @@ jobs:
 
     - name: Create databases
       shell: bash
-      env:
-        PGPASSWORD: chaptarr
       run: |
         set -euo pipefail
         psql -h localhost -U chaptarr -d postgres -c 'CREATE DATABASE "chaptarr-main";'
@@ -222,7 +231,6 @@ jobs:
         Chaptarr__Postgres__Host: localhost
         Chaptarr__Postgres__Port: 5432
         Chaptarr__Postgres__User: chaptarr
-        Chaptarr__Postgres__Password: chaptarr
         Chaptarr__Postgres__MainDb: chaptarr-main
         Chaptarr__Postgres__LogDb: chaptarr-log
         Chaptarr__Postgres__CacheDb: chaptarr-cache
