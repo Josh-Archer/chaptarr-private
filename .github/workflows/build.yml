@@ -28,7 +28,8 @@ jobs:
     # blocked by the Actions billing limit). ARC has no Windows/macOS runners,
     # so those entries use GitHub-hosted runners and are gated behind the repo
     # variable ENABLE_HOSTED_RUNNERS == 'true' rather than removed.
-    runs-on: ${{ matrix.runner }}
+    # Fork PRs never run on the in-cluster shared pool (home#4068).
+    runs-on: ${{ github.event.pull_request.head.repo.fork && matrix.os == 'linux' && 'ubuntu-latest' || matrix.runner }}
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     strategy:
