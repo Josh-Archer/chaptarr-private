@@ -28,13 +28,14 @@ jobs:
     # blocked by the Actions billing limit). ARC has no Windows/macOS runners,
     # so those entries use GitHub-hosted runners and are gated behind the repo
     # variable ENABLE_HOSTED_RUNNERS == 'true' rather than removed.
-    runs-on: ${{ matrix.runner }}
+    # Fork PRs never run on the in-cluster shared pool (home#4068).
+    runs-on: ${{ github.event.pull_request.head.repo.fork && matrix.os == 'linux' && 'ubuntu-latest' || matrix.runner }}
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"home-gh-runner-chaptarr-private"}]') }}
+        include: ${{ fromJSON(vars.ENABLE_HOSTED_RUNNERS == 'true' && '[{"os":"linux","platform":"linux","runner":"uecb-shared"},{"os":"windows-latest","platform":"win","runner":"windows-latest"},{"os":"macos-latest","platform":"osx","runner":"macos-latest"}]' || '[{"os":"linux","platform":"linux","runner":"uecb-shared"}]') }}
 
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
@@ -148,24 +149,10 @@ jobs:
 
   postgres-migrations:
     # Self-hosted ARC (see build job). Its dind sidecar shares the pod network,
-    # so the postgres service container's 5432 mapping is reachable on localhost.
-    runs-on: home-gh-runner-chaptarr-private
+    # so the `docker run` postgres 5432 mapping is reachable on localhost.
+    runs-on: ${{ github.event.pull_request.head.repo.fork && 'ubuntu-latest' || 'uecb-shared' }}
     env:
       DOTNET_INSTALL_DIR: ${{ github.workspace }}/../.dotnet
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: chaptarr
-          POSTGRES_PASSWORD: chaptarr
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U chaptarr"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 10
-
     steps:
     - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
 
@@ -181,10 +168,51 @@ jobs:
         sudo apt-get update
         sudo apt-get install -y --no-install-recommends postgresql-client curl ca-certificates libicu-dev
 
-    - name: Create databases
+    # Postgres runs via `docker run` rather than a service container: on the
+    # shared-pool dind the service pull/create can exceed the runner's
+    # container-init window ("Failed to initialize container"), and a service
+    # failure cannot be retried. Here the pull retries and readiness waits up to 5 min.
+    - name: Generate PostgreSQL password
+      shell: bash
+      run: |
+        set -euo pipefail
+        pg_password="$(openssl rand -hex 24)"
+        echo "::add-mask::${pg_password}"
+        {
+          echo "POSTGRES_PASSWORD=${pg_password}"
+          echo "PGPASSWORD=${pg_password}"
+          echo "Chaptarr__Postgres__Password=${pg_password}"
+        } >> "$GITHUB_ENV"
+
+    - name: Start PostgreSQL
       shell: bash
       env:
-        PGPASSWORD: chaptarr
+        POSTGRES_USER: chaptarr
+      run: |
+        set -euo pipefail
+        for i in 1 2 3; do
+          docker pull postgres:16 && break
+          [ "$i" = 3 ] && { echo "::error::docker pull postgres:16 failed"; exit 1; }
+          sleep $((i * 10))
+        done
+        docker rm -f chaptarr-pg >/dev/null 2>&1 || true
+        docker run -d --name chaptarr-pg \
+          -e POSTGRES_USER -e POSTGRES_PASSWORD \
+          -p 5432:5432 postgres:16
+        for i in $(seq 1 150); do
+          if docker exec chaptarr-pg pg_isready -U chaptarr -h 127.0.0.1 >/dev/null 2>&1 \
+             && pg_isready -h localhost -p 5432 -U chaptarr >/dev/null 2>&1; then
+            echo "PostgreSQL ready after $((i * 2))s"
+            exit 0
+          fi
+          sleep 2
+        done
+        echo "::error::PostgreSQL did not become ready within 300s"
+        docker logs chaptarr-pg || true
+        exit 1
+
+    - name: Create databases
+      shell: bash
       run: |
         set -euo pipefail
         psql -h localhost -U chaptarr -d postgres -c 'CREATE DATABASE "chaptarr-main";'
@@ -203,7 +231,6 @@ jobs:
         Chaptarr__Postgres__Host: localhost
         Chaptarr__Postgres__Port: 5432
         Chaptarr__Postgres__User: chaptarr
-        Chaptarr__Postgres__Password: chaptarr
         Chaptarr__Postgres__MainDb: chaptarr-main
         Chaptarr__Postgres__LogDb: chaptarr-log
         Chaptarr__Postgres__CacheDb: chaptarr-cache
@@ -220,7 +247,9 @@ jobs:
         pid=$!
 
         ready=""
-        for i in $(seq 1 90); do
+        # Shared-pool runners run the full Postgres migration chain slower than
+        # the old dedicated scale set (several seconds per index); allow 5 min.
+        for i in $(seq 1 300); do
           if curl -fsS "http://127.0.0.1:8789/ping" >/dev/null 2>&1; then
             ready="yes"
             break
@@ -238,3 +267,8 @@ jobs:
         fi
 
         echo "PostgreSQL migrations smoke test passed."
+
+    - name: Stop PostgreSQL
+      if: always()
+      shell: bash
+      run: docker rm -f chaptarr-pg >/dev/null 2>&1 || true
